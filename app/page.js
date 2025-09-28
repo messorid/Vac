@@ -1,38 +1,49 @@
 import Converter from "./components/Converter"
 
+// 🔹 Helper para fetch seguro con manejo de errores
+async function safeFetch(url) {
+  try {
+    const res = await fetch(url, { cache: "no-store" })
+    if (!res.ok) throw new Error(`Error en API ${url}`)
+    return await res.json()
+  } catch (err) {
+    console.error("❌ Error en fetch:", url, err.message)
+    return null
+  }
+}
+
 async function getRates() {
-  // USD oficial (BCV)
-  const bcvRes = await fetch("https://ve.dolarapi.com/v1/dolares/oficial", { cache: "no-store" })
-  const bcv = await bcvRes.json()
+  // ⚡ 1. BCV (USD oficial)
+  const bcv = await safeFetch("https://ve.dolarapi.com/v1/dolares/oficial")
 
-  // EUR → VES desde exchangeratesapi.io
-  const eurRes = await fetch(
-    "https://api.exchangeratesapi.io/v1/latest?access_key=b926f93a5858c21d9c4da3d4a1bccc25&base=EUR&symbols=VES,USD",
-    { cache: "no-store" }
+  // ⚡ 2. EUR → VES desde ExchangeRatesAPI
+  const eur = await safeFetch(
+    "https://api.exchangeratesapi.io/v1/latest?access_key=b926f93a5858c21d9c4da3d4a1bccc25&base=EUR&symbols=VES,USD"
   )
-  const eur = await eurRes.json()
 
-  // Binance P2P (tu endpoint interno)
-  const binanceRes = await fetch("http://localhost:3000/api/binance", { cache: "no-store" })
-  const binance = await binanceRes.json()
+  // ⚡ 3. Binance P2P → usamos la URL base según entorno
+  const baseUrl =
+    process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000" // ✅ Vercel o local
+  const binance = await safeFetch(`${baseUrl}/api/binance`)
 
-  // ⚡ conversiones
-  const bcvUsd = bcv.promedio      // 1 USD en VES (oficial BCV)
-  const bcvEur = eur.rates.VES     // 1 EUR en VES (oficial vía exchangeratesapi)
-
-  // Promedio "calle" = entre BCV USD y Binance
-  const paralelo = (bcvUsd + Number(binance.average)) / 2
+  // ⚡ Conversiones seguras
+  const bcvUsd = bcv?.promedio || 0
+  const bcvEur = eur?.rates?.VES || 0
+  const binanceAvg = binance?.average ? Number(binance.average) : 0
+  const paralelo =
+    bcvUsd && binanceAvg ? (bcvUsd + binanceAvg) / 2 : binanceAvg || bcvUsd
 
   return {
     bcvUsd,
     bcvEur,
-    binance: Number(binance.average),
+    binance: binanceAvg,
     calle: paralelo,
   }
 }
 
 export default async function Home() {
   const rates = await getRates()
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-[--color-bg]">
       <Converter rates={rates} />
